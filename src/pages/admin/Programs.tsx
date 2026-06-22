@@ -1,0 +1,212 @@
+import { useState } from "react";
+
+import AdminLayout from "@/components/admin/AdminLayout";
+import { usePrograms } from "@/hooks/useSchoolData";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
+import { Save, Plus } from "lucide-react";
+import { uploadImage } from "@/lib/cloudinary";
+import { RequireAdminAuth } from "../../lib/firebase/adminAuth";
+
+export default function AdminPrograms() {
+
+  const { data: programs, update, add, loading } = usePrograms();
+  const [editing, setEditing] = useState<Record<string, any>>({});
+  const [showNew, setShowNew] = useState(false);
+  const initialNewProgram = {
+    title: "",
+
+    slug: "",
+    description: "",
+    image: "",
+    fullContent: "",
+    features: [""],
+    isActive: true,
+    updatedAt: new Date().toISOString(),
+    order: 0,
+  };
+
+  const [newProgram, setNewProgram] = useState<typeof initialNewProgram>({
+    title: "",
+
+    slug: "",
+    description: "",
+    image: "",
+    fullContent: "",
+    features: [""],
+    isActive: true,
+    updatedAt: new Date().toISOString(),
+    order: 0,
+  });
+  const [uploadingNewImage, setUploadingNewImage] = useState(false);
+  const [uploadingEditId, setUploadingEditId] = useState<string | null>(null);
+
+
+
+
+  const handleEdit = (id: string, field: string, value: any) => {
+    setEditing((prev) => ({ ...prev, [`${id}.${field}`]: value }));
+  };
+
+  const handleSave = async (id: string) => {
+    const updates: Record<string, any> = {};
+    Object.entries(editing).forEach(([key, value]) => {
+      if (key.startsWith(`${id}.`)) updates[key.replace(`${id}.`, "")] = value;
+    });
+
+    try {
+      await update(id, updates);
+      setEditing((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((k) => {
+          if (k.startsWith(`${id}.`)) delete next[k];
+        });
+        return next;
+      });
+      toast.success("Saved");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save.");
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!newProgram.title || !newProgram.slug) {
+      toast.error("Title and slug are required");
+      return;
+    }
+
+    try {
+      await add(newProgram);
+      setShowNew(false);
+      setNewProgram({
+        ...initialNewProgram,
+        updatedAt: new Date().toISOString(),
+      });
+      toast.success("Saved to Firestore.");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save to Firestore. Check admin auth and Firestore rules.");
+    }
+  };
+
+  const handleNewImageUpload = async (file?: File) => {
+    if (!file) return;
+
+    try {
+      setUploadingNewImage(true);
+      const result = await uploadImage(file);
+      setNewProgram((prev) => ({ ...prev, image: result.url }));
+      toast.success("Image uploaded!");
+    } catch (error: any) {
+      toast.error(error?.message || "Upload failed");
+    } finally {
+      setUploadingNewImage(false);
+    }
+  };
+
+  const handleEditImageUpload = async (id: string, file?: File) => {
+    if (!file) return;
+
+    try {
+      setUploadingEditId(id);
+      const result = await uploadImage(file);
+      handleEdit(id, "image", result.url);
+      toast.success("Image uploaded!");
+    } catch (error: any) {
+      toast.error(error?.message || "Upload failed");
+    } finally {
+      setUploadingEditId(null);
+    }
+  };
+
+  return (
+    <RequireAdminAuth>
+      <AdminLayout>
+        <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Programs</h1>
+            <p className="text-slate-500">Manage your academic programs</p>
+          </div>
+          <Button onClick={() => setShowNew(!showNew)}>
+            <Plus className="h-4 w-4 mr-1" /> Add Program
+          </Button>
+        </div>
+
+        {showNew && (
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <h3 className="font-semibold">New Program</h3>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Input placeholder="Title" value={newProgram.title} onChange={(e) => setNewProgram((p) => ({ ...p, title: e.target.value }))} />
+                <Input placeholder="Slug" value={newProgram.slug} onChange={(e) => setNewProgram((p) => ({ ...p, slug: e.target.value }))} />
+              </div>
+              <Textarea placeholder="Description" value={newProgram.description} onChange={(e) => setNewProgram((p) => ({ ...p, description: e.target.value }))} />
+              <Textarea placeholder="Full Content" rows={4} value={newProgram.fullContent} onChange={(e) => setNewProgram((p) => ({ ...p, fullContent: e.target.value }))} />
+              <Input placeholder="Cloudinary image URL" value={newProgram.image} onChange={(e) => setNewProgram((p) => ({ ...p, image: e.target.value }))} />
+              <div className="flex flex-wrap items-center gap-3">
+                <Input type="file" accept="image/*" className="max-w-sm" onChange={(e) => handleNewImageUpload(e.target.files?.[0])} />
+                {uploadingNewImage && <span className="text-sm text-slate-500">Uploading...</span>}
+              </div>
+              {newProgram.image ? (
+                <img src={newProgram.image} alt={newProgram.title || "Program preview"} className="h-24 w-40 rounded object-cover border border-slate-200" />
+              ) : null}
+              <div className="flex gap-2">
+                <Button onClick={handleAdd} className="bg-green-600 hover:bg-green-700">Create Program</Button>
+                <Button variant="outline" onClick={() => setShowNew(false)}>Cancel</Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {loading ? (
+          <p>Loading...</p>
+        ) : (
+          <div className="space-y-4">
+            {programs.map((program) => (
+              <Card key={program.id}>
+                <CardContent className="p-4 space-y-3">
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-slate-500">Title</label>
+                      <Input defaultValue={program.title} onChange={(e) => handleEdit(program.id, "title", e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">Slug</label>
+                      <Input defaultValue={program.slug} onChange={(e) => handleEdit(program.id, "slug", e.target.value)} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Description</label>
+                    <Textarea defaultValue={program.description} onChange={(e) => handleEdit(program.id, "description", e.target.value)} />
+                  </div>
+                  
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Input type="file" accept="image/*" className="max-w-sm" onChange={(e) => handleEditImageUpload(program.id, e.target.files?.[0])} />
+                    {uploadingEditId === program.id && <span className="text-sm text-slate-500">Uploading...</span>}
+                  </div>
+                  {(editing[`${program.id}.image`] ?? program.image) ? (
+                    <img src={editing[`${program.id}.image`] ?? program.image} alt={program.title} className="h-24 w-40 rounded object-cover border border-slate-200" />
+                  ) : null}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Switch checked={editing[`${program.id}.isActive`] ?? program.isActive} onCheckedChange={(v) => handleEdit(program.id, "isActive", v)} />
+                      <span className="text-sm text-slate-600">Active</span>
+                    </div>
+                    <Button size="sm" onClick={() => handleSave(program.id)}>
+                      <Save className="h-4 w-4 mr-1" /> Save
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+        </div>
+      </AdminLayout>
+    </RequireAdminAuth>
+  );
+}
